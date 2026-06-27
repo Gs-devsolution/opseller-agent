@@ -45,7 +45,6 @@ def capturar_detalhes_produto(
     vendido_por = dados_oferta.get("vendido_por")
     enviado_por_amazon = _valor_eh_amazon(enviado_por)
     vendido_por_amazon = _valor_eh_amazon(vendido_por)
-    alerta = _definir_alerta(enviado_por_amazon, vendido_por_amazon)
 
     return {
         "asin": asin,
@@ -57,11 +56,6 @@ def capturar_detalhes_produto(
         "ranking_1": rankings[0] if len(rankings) > 0 else None,
         "ranking_2": rankings[1] if len(rankings) > 1 else None,
         "ranking_3": rankings[2] if len(rankings) > 2 else None,
-        "fornecedor": None,
-        "link": None,
-        "custo": None,
-        "preco_minimo_lucrativo": None,
-        "alerta": alerta,
         "status": "pendente",
     }
 
@@ -360,10 +354,3 @@ def _valor_eh_amazon(valor: str | None) -> bool:
     normalizado = valor.lower()
     return normalizado in {"amazon", "amazon.com.br"} or normalizado.startswith("amazon.com")
 
-
-def _definir_alerta(enviado_por_amazon: bool, vendido_por_amazon: bool) -> str | None:
-    if vendido_por_amazon:
-        return "VENDIDO POR AMAZON"
-    if enviado_por_amazon:
-        return "ENVIADO POR AMAZON"
-    return None

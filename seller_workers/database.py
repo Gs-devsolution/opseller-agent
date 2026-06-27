@@ -314,12 +314,12 @@ def marcar_teste_seller_como_finalizado(
     )
 
 
-def salvar_produto_enriquecido(
+def salvar_produto_minerado(
     supabase: Client,
     produto: dict[str, Any],
 ) -> None:
     (
-        supabase.table("produtos")
+        supabase.table("produtos_minerados")
         .upsert(produto, on_conflict="asin")
         .execute()
     )

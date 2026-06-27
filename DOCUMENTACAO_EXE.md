@@ -25,7 +25,7 @@ Por padrao, todos os executores iniciam desligados. Os executores so podem ser l
    - Gerada pelo Executor 3.
    - Contem o resultado do teste do produto no Seller Central.
 
-5. `produtos`
+5. `produtos_minerados`
    - Gerada pelo Executor 4.
    - Contem o enriquecimento dos produtos aprovados.
 
@@ -287,7 +287,7 @@ Funcao:
 - consumir produtos aprovados no Seller;
 - acessar a Amazon fora do Seller;
 - capturar dados detalhados do produto;
-- gravar em `produtos`;
+- gravar em `produtos_minerados`;
 - finalizar a fila em `teste_seller`.
 
 Fluxo:
@@ -296,7 +296,7 @@ Fluxo:
 2. Abre Selenium com perfil `executor_4`.
 3. Para cada ASIN aprovado:
    - chama Worker 4;
-   - se `finalizado = true`, grava em `produtos`;
+   - se `finalizado = true`, grava em `produtos_minerados`;
    - marca `teste_seller.status = 'finalizado'`.
 4. Se houver erro:
    - nao finaliza `teste_seller`;
@@ -320,20 +320,10 @@ Captura atual:
 - `qtd_concorrentes`;
 - `ranking_1`;
 - `ranking_2`;
-- `ranking_3`;
-- `alerta`.
-
-Campos reservados para etapas futuras:
-
-- `fornecedor`;
-- `link`;
-- `custo`;
-- `preco_minimo_lucrativo`.
+- `ranking_3`.
 
 Regras importantes:
 
-- `fornecedor` fica `null` por enquanto, pois sera preenchido pelo usuario ou por uma etapa futura.
-- `link` fica `null` por enquanto, pois sera usado na etapa de mineracao/fornecedor.
 - Ranking pode nao existir. Nesse caso, `ranking_1`, `ranking_2`, `ranking_3` ficam `null`.
 - O scraper limita ranking a 3 posicoes.
 - `qtd_concorrentes` vem do bloco "Outros vendedores na Amazon".
@@ -341,8 +331,6 @@ Regras importantes:
   - Se nao houver bloco, grava `1`.
 - Se o produto for enviado pela Amazon, `enviado_por_amazon = true`.
 - Se o produto for vendido pela Amazon, `vendido_por_amazon = true`.
-- Se vendido pela Amazon, `alerta = 'VENDIDO POR AMAZON'`.
-- Se enviado pela Amazon, `alerta = 'ENVIADO POR AMAZON'`.
 
 ## Regras De Status Por Tabela
 
@@ -375,7 +363,7 @@ Observacao:
 
 Aqui `pendente` nao significa "nao testado". Significa "aprovado no Seller e pendente de enriquecimento".
 
-### produtos
+### produtos_minerados
 
 - `pendente`: produto enriquecido, aguardando etapa futura de margem/operacao.
 - `reprovado por margem`: reservado para modulo futuro.
@@ -389,17 +377,6 @@ A regra atual e:
 - uma linha por `asin_produto`;
 - se o mesmo ASIN aparecer em varias vitrines, apenas o primeiro registro e mantido;
 - o teste Seller ocorre uma unica vez por ASIN.
-
-SQL de migracao:
-
-- `db/migrar_produtos_capturados_asin_unico.sql`
-
-Esse script:
-
-1. cria backup de `produtos_capturados`;
-2. deduplica por `asin_produto`;
-3. preserva `finalizado` se qualquer duplicado ja estava finalizado;
-4. troca a primary key para `asin_produto`.
 
 Conferencia:
 
@@ -432,7 +409,7 @@ Regras:
 - Worker 1 verifica duplicidade antes de inserir vitrine.
 - Worker 2 verifica duplicidade global por ASIN antes de inserir produto capturado.
 - Worker 3 verifica se ja existe teste Seller antes de testar novamente.
-- Worker 4 usa upsert em `produtos`.
+- Worker 4 usa upsert em `produtos_minerados`.
 
 ## Comando Para Rodar
 

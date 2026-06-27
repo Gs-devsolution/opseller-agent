@@ -110,6 +110,9 @@ Nao use a `service_role key` no OpSeller Agent nem no painel web.
 - `db/schema.sql`
   - cria a estrutura atual do banco para uma instalacao nova.
 
+- `db/migrar_produtos_para_produtos_minerados.sql`
+  - migra bancos existentes que ainda usam a tabela antiga `produtos`.
+
 ## Comando Principal
 
 ```powershell

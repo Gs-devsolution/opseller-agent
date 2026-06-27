@@ -51,7 +51,7 @@ create table if not exists public.teste_seller (
         check (status in ('pendente', 'finalizado'))
 );
 
-create table if not exists public.produtos (
+create table if not exists public.produtos_minerados (
     asin text not null primary key,
     nome_do_produto text,
     preco text,
@@ -61,20 +61,9 @@ create table if not exists public.produtos (
     ranking_1 text,
     ranking_2 text,
     ranking_3 text,
-    fornecedor text,
-    link text,
-    custo text,
-    preco_minimo_lucrativo text,
-    alerta text,
     status text not null default 'pendente',
 
-    constraint produtos_alerta_check
-        check (
-            alerta is null
-            or alerta in ('VENDIDO POR AMAZON', 'ENVIADO POR AMAZON')
-        ),
-
-    constraint produtos_status_check
+    constraint produtos_minerados_status_check
         check (
             status in (
                 'pendente',
@@ -89,19 +78,19 @@ revoke all on public.produtos_iniciais from anon;
 revoke all on public.vitrines from anon;
 revoke all on public.produtos_capturados from anon;
 revoke all on public.teste_seller from anon;
-revoke all on public.produtos from anon;
+revoke all on public.produtos_minerados from anon;
 
 grant select, insert, update on public.produtos_iniciais to authenticated;
 grant select, insert, update on public.vitrines to authenticated;
 grant select, insert, update on public.produtos_capturados to authenticated;
 grant select, insert, update on public.teste_seller to authenticated;
-grant select, insert, update on public.produtos to authenticated;
+grant select, insert, update on public.produtos_minerados to authenticated;
 
 alter table public.produtos_iniciais enable row level security;
 alter table public.vitrines enable row level security;
 alter table public.produtos_capturados enable row level security;
 alter table public.teste_seller enable row level security;
-alter table public.produtos enable row level security;
+alter table public.produtos_minerados enable row level security;
 
 drop policy if exists "permitir select produtos iniciais" on public.produtos_iniciais;
 create policy "permitir select produtos iniciais"
@@ -191,23 +180,23 @@ to authenticated
 using (true)
 with check (true);
 
-drop policy if exists "permitir select produtos" on public.produtos;
-create policy "permitir select produtos"
-on public.produtos
+drop policy if exists "permitir select produtos minerados" on public.produtos_minerados;
+create policy "permitir select produtos minerados"
+on public.produtos_minerados
 for select
 to authenticated
 using (true);
 
-drop policy if exists "permitir insert produtos" on public.produtos;
-create policy "permitir insert produtos"
-on public.produtos
+drop policy if exists "permitir insert produtos minerados" on public.produtos_minerados;
+create policy "permitir insert produtos minerados"
+on public.produtos_minerados
 for insert
 to authenticated
 with check (true);
 
-drop policy if exists "permitir update produtos" on public.produtos;
-create policy "permitir update produtos"
-on public.produtos
+drop policy if exists "permitir update produtos minerados" on public.produtos_minerados;
+create policy "permitir update produtos minerados"
+on public.produtos_minerados
 for update
 to authenticated
 using (true)

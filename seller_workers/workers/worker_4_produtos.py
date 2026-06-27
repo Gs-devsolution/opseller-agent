@@ -7,7 +7,7 @@ from typing import Any, Callable
 from selenium.webdriver.remote.webdriver import WebDriver
 from supabase import Client
 
-from seller_workers.database import salvar_produto_enriquecido
+from seller_workers.database import salvar_produto_minerado
 from seller_workers.scrapers.produto_detalhes import capturar_detalhes_produto
 
 LogFn = Callable[[str], None]
@@ -37,7 +37,7 @@ def enriquecer_produto(
         if not produto.get("nome_do_produto"):
             raise RuntimeError("Produto sem nome capturado; pagina considerada invalida.")
 
-        salvar_produto_enriquecido(supabase, produto)
+        salvar_produto_minerado(supabase, produto)
         resultado["produto"] = produto
         resultado["finalizado"] = True
         log(f"Produto enriquecido gravado: {asin_produto}")
