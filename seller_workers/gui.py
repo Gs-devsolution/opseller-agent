@@ -12,7 +12,12 @@ from typing import Any, Callable
 
 from supabase import Client
 
-from seller_workers.config import Config, carregar_config
+from seller_workers.config import (
+    Config,
+    carregar_config_permissiva,
+    config_supabase_completa,
+    salvar_config_supabase,
+)
 from seller_workers.database import autenticar_cliente_supabase, sair_cliente_supabase
 from seller_workers.executors.executor_1_vitrines import rodar_ciclo_executor_1
 from seller_workers.executors.executor_2_produtos import rodar_ciclo_executor_2
@@ -157,18 +162,18 @@ class SellerCentralApp(tk.Tk):
 
         self.log_queue: queue.Queue[str] = queue.Queue()
 
-        try:
-            self.config = carregar_config()
-        except Exception as exc:
-            messagebox.showerror("Configuracao invalida", str(exc))
-            raise
+        self.config = carregar_config_permissiva()
 
         self.seller_session = SellerSession(self.config, self._log_gui)
-        self.controllers = self._criar_controllers()
+        self.controllers: list[ExecutorController] = []
         self.status_vars: dict[str, tk.StringVar] = {}
         self.proxima_execucao_vars: dict[str, tk.StringVar] = {}
         self.ligar_buttons: dict[str, ttk.Button] = {}
+        self.executores_frame: ttk.LabelFrame | None = None
         self.supabase_client: Client | None = None
+        self.config_status_var = tk.StringVar(value="")
+        self.config_supabase_url_var = tk.StringVar(value=self.config.supabase_url)
+        self.config_supabase_key_var = tk.StringVar(value=self.config.supabase_key)
         self.supabase_status_var = tk.StringVar(value="Status: desconectado")
         self.supabase_email_var = tk.StringVar()
         self.supabase_senha_var = tk.StringVar()
@@ -245,10 +250,39 @@ class SellerCentralApp(tk.Tk):
         corpo = ttk.Frame(self, padding=(16, 0, 16, 16))
         corpo.grid(row=1, column=0, sticky="nsew")
         corpo.columnconfigure(0, weight=1)
-        corpo.rowconfigure(3, weight=1)
+        corpo.rowconfigure(4, weight=1)
+
+        config_frame = ttk.LabelFrame(corpo, text="Configuracao inicial", padding=12)
+        config_frame.grid(row=0, column=0, sticky="ew")
+        config_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(config_frame, text="Supabase URL").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        supabase_url = ttk.Entry(
+            config_frame,
+            textvariable=self.config_supabase_url_var,
+        )
+        supabase_url.grid(row=0, column=1, sticky="ew", padx=(0, 12))
+
+        ttk.Label(config_frame, text="Publishable key").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
+        supabase_key = ttk.Entry(
+            config_frame,
+            textvariable=self.config_supabase_key_var,
+            show="*",
+        )
+        supabase_key.grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=(8, 0))
+
+        salvar_config = ttk.Button(
+            config_frame,
+            text="Salvar configuracao",
+            command=self._salvar_configuracao_inicial,
+        )
+        salvar_config.grid(row=0, column=2, rowspan=2, sticky="ns")
+
+        config_status = ttk.Label(config_frame, textvariable=self.config_status_var)
+        config_status.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         supabase_frame = ttk.LabelFrame(corpo, text="Supabase", padding=12)
-        supabase_frame.grid(row=0, column=0, sticky="ew")
+        supabase_frame.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         supabase_frame.columnconfigure(1, weight=1)
         supabase_frame.columnconfigure(3, weight=1)
 
@@ -281,15 +315,14 @@ class SellerCentralApp(tk.Tk):
         supabase_status = ttk.Label(supabase_frame, textvariable=self.supabase_status_var)
         supabase_status.grid(row=1, column=0, columnspan=6, sticky="w", pady=(8, 0))
 
-        executores_frame = ttk.LabelFrame(corpo, text="Executores", padding=12)
-        executores_frame.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        executores_frame.columnconfigure(1, weight=1)
+        self.executores_frame = ttk.LabelFrame(corpo, text="Executores", padding=12)
+        self.executores_frame.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        self.executores_frame.columnconfigure(1, weight=1)
 
-        for indice, controller in enumerate(self.controllers):
-            self._montar_linha_executor(executores_frame, controller, indice)
+        self._remontar_controllers()
 
         seller_frame = ttk.LabelFrame(corpo, text="Sessao Seller", padding=12)
-        seller_frame.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        seller_frame.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         seller_frame.columnconfigure(1, weight=1)
 
         seller_nome = ttk.Label(
@@ -317,7 +350,7 @@ class SellerCentralApp(tk.Tk):
         fechar_seller.grid(row=0, column=3)
 
         logs_frame = ttk.LabelFrame(corpo, text="Logs", padding=8)
-        logs_frame.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
+        logs_frame.grid(row=4, column=0, sticky="nsew", pady=(12, 0))
         logs_frame.columnconfigure(0, weight=1)
         logs_frame.rowconfigure(0, weight=1)
 
@@ -356,6 +389,13 @@ class SellerCentralApp(tk.Tk):
         desligar.grid(row=row, column=4)
 
     def _aplicar_estado_inicial(self) -> None:
+        if config_supabase_completa(self.config):
+            self.config_status_var.set("Configuracao Supabase salva.")
+        else:
+            self.config_status_var.set(
+                "Informe SUPABASE_URL e SUPABASE_KEY para liberar o login."
+            )
+
         self._atualizar_estado_botoes_executores()
 
         for controller in self.controllers:
@@ -368,7 +408,50 @@ class SellerCentralApp(tk.Tk):
         horario = time.strftime("%H:%M:%S")
         self.log_queue.put(f"[{horario}] {mensagem}")
 
+    def _salvar_configuracao_inicial(self) -> None:
+        try:
+            self.config = salvar_config_supabase(
+                self.config_supabase_url_var.get(),
+                self.config_supabase_key_var.get(),
+            )
+            self.seller_session = SellerSession(self.config, self._log_gui)
+            self._remontar_controllers()
+            self.supabase_client = None
+            self.supabase_status_var.set("Status: desconectado")
+            self.config_status_var.set("Configuracao salva. Agora faca login no Supabase.")
+            self._atualizar_estado_botoes_executores()
+            self._log_gui("Configuracao Supabase salva no .env.")
+        except Exception as exc:
+            messagebox.showerror("Configuracao invalida", str(exc))
+
+    def _remontar_controllers(self) -> None:
+        for controller in self.controllers:
+            controller.desligar()
+
+        self.controllers = self._criar_controllers()
+        self.status_vars.clear()
+        self.proxima_execucao_vars.clear()
+        self.ligar_buttons.clear()
+
+        if self.executores_frame is None:
+            return
+
+        for widget in self.executores_frame.winfo_children():
+            widget.destroy()
+
+        for indice, controller in enumerate(self.controllers):
+            self._montar_linha_executor(self.executores_frame, controller, indice)
+
+        self._atualizar_estado_botoes_executores()
+
     def _conectar_supabase(self) -> None:
+        if not config_supabase_completa(self.config):
+            messagebox.showwarning(
+                "Configuracao Supabase",
+                "Salve SUPABASE_URL e SUPABASE_KEY antes de conectar.",
+            )
+            return
+
         email = self.supabase_email_var.get().strip()
         senha = self.supabase_senha_var.get()
 
