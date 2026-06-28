@@ -186,7 +186,8 @@ class TesteSellerSessionManager:
         sessao.status = "autenticando"
         self.log(f"{sessao.nome}: fazendo auto-login no Seller Central.")
 
-        for tentativa in range(1, 5):
+        tentativas_login = 8
+        for tentativa in range(1, tentativas_login + 1):
             if sessao_seller_autenticada(driver):
                 self.log(f"{sessao.nome}: auto-login concluido.")
                 return True
@@ -211,7 +212,7 @@ class TesteSellerSessionManager:
                 self._abrir_area_interna(driver)
 
             time.sleep(3)
-            self.log(f"{sessao.nome}: verificando login ({tentativa}/4).")
+            self.log(f"{sessao.nome}: verificando login ({tentativa}/{tentativas_login}).")
 
         return sessao_seller_autenticada(driver)
 
@@ -283,8 +284,10 @@ class TesteSellerSessionManager:
             return False
 
         self._preencher_campo(driver, campo, self.config.seller_email)
-        clicou = self._clicar_por_selectors(
+        self._avancar_etapa_login(
             driver,
+            campo,
+            "email",
             [
                 (By.ID, "continue"),
                 (By.NAME, "continue"),
@@ -292,8 +295,6 @@ class TesteSellerSessionManager:
                 (By.CSS_SELECTOR, "button[type='submit']"),
             ],
         )
-        if not clicou:
-            campo.send_keys(Keys.ENTER)
         return True
 
     def _preencher_senha(self, driver: WebDriver) -> bool:
@@ -303,8 +304,10 @@ class TesteSellerSessionManager:
 
         self._preencher_campo(driver, campo, self.config.seller_password)
         self._marcar_manter_conectado(driver)
-        clicou = self._clicar_por_selectors(
+        self._avancar_etapa_login(
             driver,
+            campo,
+            "senha",
             [
                 (By.ID, "signInSubmit"),
                 (By.NAME, "signIn"),
@@ -312,8 +315,6 @@ class TesteSellerSessionManager:
                 (By.CSS_SELECTOR, "button[type='submit']"),
             ],
         )
-        if not clicou:
-            campo.send_keys(Keys.ENTER)
         return True
 
     def _preencher_otp(self, driver: WebDriver) -> bool:
@@ -332,8 +333,10 @@ class TesteSellerSessionManager:
 
         codigo = pyotp.TOTP(self.config.seller_totp_secret.replace(" ", "")).now()
         self._preencher_campo(driver, campo, codigo)
-        clicou = self._clicar_por_selectors(
+        self._avancar_etapa_login(
             driver,
+            campo,
+            "otp",
             [
                 (By.ID, "auth-signin-button"),
                 (By.ID, "signInSubmit"),
@@ -341,8 +344,6 @@ class TesteSellerSessionManager:
                 (By.CSS_SELECTOR, "button[type='submit']"),
             ],
         )
-        if not clicou:
-            campo.send_keys(Keys.ENTER)
         return True
 
     def _pagina_pede_otp(self, driver: WebDriver) -> bool:
@@ -444,6 +445,43 @@ class TesteSellerSessionManager:
             campo,
         )
 
+    def _avancar_etapa_login(
+        self,
+        driver: WebDriver,
+        campo,
+        etapa_atual: str,
+        selectors: list[tuple[str, str]],
+    ) -> None:
+        self._clicar_por_selectors(driver, selectors)
+        time.sleep(1)
+
+        if self._detectar_etapa_login(driver) != etapa_atual:
+            return
+
+        campo.send_keys(Keys.ENTER)
+        time.sleep(1)
+
+        if self._detectar_etapa_login(driver) != etapa_atual:
+            return
+
+        try:
+            driver.execute_script(
+                """
+                const campo = arguments[0];
+                const form = campo && campo.form ? campo.form : document.querySelector('form');
+                if (form) {
+                    if (form.requestSubmit) {
+                        form.requestSubmit();
+                    } else {
+                        form.submit();
+                    }
+                }
+                """,
+                campo,
+            )
+        except Exception:
+            pass
+
     def _clicar_por_selectors(
         self,
         driver: WebDriver,
@@ -455,7 +493,11 @@ class TesteSellerSessionManager:
                 elemento = WebDriverWait(driver, timeout).until(
                     EC.element_to_be_clickable((by, selector))
                 )
-                driver.execute_script("arguments[0].click();", elemento)
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemento)
+                try:
+                    elemento.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", elemento)
                 return True
             except Exception:
                 continue
