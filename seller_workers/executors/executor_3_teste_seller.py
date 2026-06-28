@@ -159,6 +159,18 @@ def _processar_produtos_em_paralelo(
                 return
 
             try:
+                garantir_autenticacao = getattr(sessao, "garantir_autenticacao", None)
+                if callable(garantir_autenticacao):
+                    try:
+                        if not garantir_autenticacao(should_stop):
+                            setattr(sessao, "status", "deslogada")
+                            log(f"{nome_sessao}: nao autenticou; tester pausado.")
+                            return
+                    except Exception as exc:
+                        setattr(sessao, "status", "erro")
+                        log(f"{nome_sessao}: erro ao reautenticar sessao: {exc}")
+                        return
+
                 continuar = _processar_um_produto(
                     supabase=supabase,
                     asin_produto=asin_produto,

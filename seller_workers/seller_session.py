@@ -119,6 +119,7 @@ class TesteSellerSessao:
     driver: WebDriver | None = None
     status: str = "fechada"
     erro: str | None = None
+    garantir_autenticacao: Callable[[Callable[[], bool]], bool] | None = None
 
 
 class TesteSellerSessionManager:
@@ -131,6 +132,13 @@ class TesteSellerSessionManager:
             TesteSellerSessao(nome=f"teste_seller_{indice}")
             for indice in range(1, self._quantidade_sessoes() + 1)
         ]
+        for sessao in self.sessoes:
+            sessao.garantir_autenticacao = (
+                lambda should_stop=lambda: False, sessao=sessao: self.garantir_sessao_autenticada(
+                    sessao,
+                    should_stop,
+                )
+            )
 
     def _quantidade_sessoes(self) -> int:
         maximo = max(1, self.config.teste_seller_session_max)
@@ -145,8 +153,7 @@ class TesteSellerSessionManager:
                 break
 
             try:
-                driver = self._abrir_driver(sessao)
-                if self._garantir_login(sessao, driver):
+                if self.garantir_sessao_autenticada(sessao, should_stop):
                     sessao.status = "autenticada"
                     sessao.erro = None
                     prontas.append(sessao)
@@ -158,6 +165,32 @@ class TesteSellerSessionManager:
                 self.log(f"{sessao.nome}: erro ao preparar sessao Seller: {exc}")
 
         return prontas
+
+    def garantir_sessao_autenticada(
+        self,
+        sessao: TesteSellerSessao,
+        should_stop: Callable[[], bool] = lambda: False,
+    ) -> bool:
+        if should_stop():
+            return False
+
+        driver = self._abrir_driver(sessao)
+
+        try:
+            if sessao_seller_autenticada(driver):
+                sessao.status = "autenticada"
+                sessao.erro = None
+                return True
+        except Exception:
+            pass
+
+        if should_stop():
+            return False
+
+        autenticada = self._garantir_login(sessao, driver)
+        sessao.status = "autenticada" if autenticada else "deslogada"
+        sessao.erro = None if autenticada else "Sessao Seller nao autenticada"
+        return autenticada
 
     def _abrir_driver(self, sessao: TesteSellerSessao) -> WebDriver:
         if sessao.driver:
@@ -441,7 +474,7 @@ class TesteSellerSessionManager:
         if not campo or not self._pagina_pede_otp(driver):
             return False
 
-        codigo = pyotp.TOTP(self.config.seller_totp_secret.replace(" ", "")).now()
+        codigo = self._gerar_codigo_totp_estavel()
         self._preencher_campo(driver, campo, codigo)
         self._avancar_etapa_login(
             driver,
@@ -456,6 +489,19 @@ class TesteSellerSessionManager:
             ],
         )
         return True
+
+    def _gerar_codigo_totp_estavel(self) -> str:
+        totp = pyotp.TOTP(self.config.seller_totp_secret.replace(" ", ""))
+        segundos_restantes = totp.interval - (int(time.time()) % totp.interval)
+
+        if segundos_restantes <= 8:
+            self.log(
+                "Codigo OTP perto de expirar; aguardando proxima janela "
+                "para evitar codigo invalido."
+            )
+            time.sleep(segundos_restantes + 1)
+
+        return totp.now()
 
     def _pagina_pede_otp(self, driver: WebDriver) -> bool:
         texto = self._texto_pagina(driver).lower()
