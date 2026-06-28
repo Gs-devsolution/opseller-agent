@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import pyotp
+from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webdriver import WebDriver
@@ -199,7 +200,9 @@ class TesteSellerSessionManager:
             if etapa:
                 self.log(f"{sessao.nome}: etapa de login detectada: {etapa}.")
 
-            if etapa == "email":
+            if etapa == "conta":
+                fez_acao = self._selecionar_conta_brasil(driver)
+            elif etapa == "email":
                 fez_acao = self._preencher_email(driver)
             elif etapa == "senha":
                 fez_acao = self._preencher_senha(driver)
@@ -256,6 +259,9 @@ class TesteSellerSessionManager:
             time.sleep(2)
 
     def _detectar_etapa_login(self, driver: WebDriver) -> str | None:
+        if self._pagina_pede_selecao_conta(driver):
+            return "conta"
+
         if self._existe_campo_interativo(
             driver,
             [
@@ -273,6 +279,110 @@ class TesteSellerSessionManager:
             return "email"
 
         return None
+
+    def _pagina_pede_selecao_conta(self, driver: WebDriver) -> bool:
+        url = (driver.current_url or "").lower()
+        texto = self._texto_pagina(driver).lower()
+        return "account-switcher" in url or (
+            "selecione uma conta" in texto and "selecionar conta" in texto
+        )
+
+    def _selecionar_conta_brasil(self, driver: WebDriver) -> bool:
+        selecionou = self._clicar_conta_brasil(driver)
+        if selecionou:
+            self.log("Conta Brasil selecionada no account-switcher.")
+
+        fim = time.time() + 8
+
+        while time.time() < fim:
+            clique_enviado = self._clicar_kat_button_shadow(
+                driver,
+                "kat-button[data-test='confirm-selection']",
+            )
+
+            if not clique_enviado:
+                clique_enviado = self._clicar_por_selectors(
+                    driver,
+                    [
+                        (By.CSS_SELECTOR, "kat-button[data-test='confirm-selection']"),
+                        (By.CSS_SELECTOR, "[data-test='confirm-selection']"),
+                        (By.XPATH, "//*[contains(normalize-space(.), 'Selecionar conta')]"),
+                    ],
+                    timeout=1,
+                )
+
+            if clique_enviado and self._aguardar_sair_selecao_conta(driver):
+                self.log("Conta Brasil confirmada no account-switcher.")
+                return True
+
+            self._pressionar_enter(driver)
+            if self._aguardar_sair_selecao_conta(driver, timeout=2):
+                self.log("Conta Brasil confirmada no account-switcher.")
+                return True
+
+            time.sleep(1)
+
+        return selecionou
+
+    def _aguardar_sair_selecao_conta(self, driver: WebDriver, timeout: int = 5) -> bool:
+        fim = time.time() + timeout
+        while time.time() < fim:
+            if not self._pagina_pede_selecao_conta(driver):
+                return True
+            time.sleep(0.5)
+        return False
+
+    def _clicar_conta_brasil(self, driver: WebDriver) -> bool:
+        try:
+            return bool(
+                driver.execute_script(
+                    """
+                    const normalizar = (texto) => (texto || '')
+                        .normalize('NFD')
+                        .replace(/[\\u0300-\\u036f]/g, '')
+                        .trim()
+                        .toLowerCase();
+
+                    const dispararClique = (el) => {
+                        el.scrollIntoView({ block: 'center' });
+                        for (const tipo of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+                            el.dispatchEvent(new MouseEvent(tipo, {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window
+                            }));
+                        }
+                    };
+
+                    const botoes = Array.from(document.querySelectorAll('button'));
+                    const botaoBrasil = botoes.find((botao) => {
+                        const texto = normalizar(botao.innerText || botao.textContent);
+                        return texto === 'brasil' || texto.includes('\\nbrasil\\n') || texto.includes('brasil');
+                    });
+
+                    if (botaoBrasil) {
+                        dispararClique(botaoBrasil);
+                        return true;
+                    }
+
+                    const label = Array.from(document.querySelectorAll('[data-test], span, div'))
+                        .find((el) => normalizar(el.textContent) === 'brasil');
+
+                    if (!label) return false;
+
+                    const botao = label.closest('button');
+                    if (botao) {
+                        dispararClique(botao);
+                        return true;
+                    }
+
+                    dispararClique(label);
+                    return true;
+                    """
+                )
+            )
+        except Exception:
+            return False
 
     def _preencher_email(self, driver: WebDriver) -> bool:
         campos = [
@@ -339,6 +449,7 @@ class TesteSellerSessionManager:
             "otp",
             [
                 (By.ID, "auth-signin-button"),
+                (By.NAME, "mfaSubmit"),
                 (By.ID, "signInSubmit"),
                 (By.CSS_SELECTOR, "input[type='submit']"),
                 (By.CSS_SELECTOR, "button[type='submit']"),
@@ -481,6 +592,102 @@ class TesteSellerSessionManager:
             )
         except Exception:
             pass
+
+    def _clicar_kat_button_shadow(self, driver: WebDriver, selector: str) -> bool:
+        try:
+            host = driver.find_element(By.CSS_SELECTOR, selector)
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", host)
+
+            try:
+                botao_shadow = host.shadow_root.find_element(By.CSS_SELECTOR, "button")
+                botao_shadow.click()
+                time.sleep(0.5)
+                if not self._pagina_pede_selecao_conta(driver):
+                    return True
+            except Exception:
+                pass
+
+            self._clicar_por_cdp(driver, host)
+            time.sleep(0.5)
+
+            if not self._pagina_pede_selecao_conta(driver):
+                return True
+
+            ActionChains(driver).move_to_element(host).click().perform()
+            time.sleep(0.5)
+
+            if not self._pagina_pede_selecao_conta(driver):
+                return True
+
+            return bool(
+                driver.execute_script(
+                    """
+                    const host = document.querySelector(arguments[0]);
+                    if (!host || !host.shadowRoot) return false;
+                    const botao = host.shadowRoot.querySelector('button');
+                    if (!botao) return false;
+                    if (botao.disabled || botao.getAttribute('aria-disabled') === 'true') return false;
+                    botao.scrollIntoView({ block: 'center' });
+                    for (const tipo of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+                        botao.dispatchEvent(new MouseEvent(tipo, {
+                            bubbles: true,
+                            cancelable: true,
+                            composed: true,
+                            view: window
+                        }));
+                    }
+                    botao.click();
+                    host.click();
+                    return true;
+                    """,
+                    selector,
+                )
+            )
+        except Exception:
+            return False
+
+    def _clicar_por_cdp(self, driver: WebDriver, elemento) -> bool:
+        try:
+            ponto = driver.execute_script(
+                """
+                const rect = arguments[0].getBoundingClientRect();
+                return {
+                    x: rect.left + (rect.width / 2),
+                    y: rect.top + (rect.height / 2)
+                };
+                """,
+                elemento,
+            )
+            driver.execute_cdp_cmd(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mousePressed",
+                    "x": ponto["x"],
+                    "y": ponto["y"],
+                    "button": "left",
+                    "clickCount": 1,
+                },
+            )
+            driver.execute_cdp_cmd(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mouseReleased",
+                    "x": ponto["x"],
+                    "y": ponto["y"],
+                    "button": "left",
+                    "clickCount": 1,
+                },
+            )
+            return True
+        except Exception:
+            return False
+
+    def _pressionar_enter(self, driver: WebDriver) -> bool:
+        try:
+            driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ENTER)
+            return True
+        except Exception:
+            return False
 
     def _clicar_por_selectors(
         self,

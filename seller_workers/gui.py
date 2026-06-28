@@ -17,6 +17,7 @@ from seller_workers.config import (
     carregar_config_permissiva,
     config_supabase_completa,
     salvar_config_supabase,
+    salvar_login_supabase,
 )
 from seller_workers.database import autenticar_cliente_supabase, sair_cliente_supabase
 from seller_workers.executors.executor_1_vitrines import rodar_ciclo_executor_1
@@ -186,8 +187,8 @@ class SellerCentralApp(tk.Tk):
         self.config_supabase_url_var = tk.StringVar(value=self.config.supabase_url)
         self.config_supabase_key_var = tk.StringVar(value=self.config.supabase_key)
         self.supabase_status_var = tk.StringVar(value="Status: desconectado")
-        self.supabase_email_var = tk.StringVar()
-        self.supabase_senha_var = tk.StringVar()
+        self.supabase_email_var = tk.StringVar(value=self.config.supabase_auth_email)
+        self.supabase_senha_var = tk.StringVar(value=self.config.supabase_auth_password)
         self.seller_status_var = tk.StringVar(value="Status: fechado")
         self.teste_seller_status_var = tk.StringVar(value="Testers: fechados")
 
@@ -502,11 +503,15 @@ class SellerCentralApp(tk.Tk):
                     senha,
                 )
                 self.supabase_client = cliente
+                try:
+                    self.config = salvar_login_supabase(email, senha)
+                    self._log_gui("Login Supabase salvo no .env.")
+                except Exception as exc:
+                    self._log_gui(f"Supabase autenticado, mas nao salvou login no .env: {exc}")
                 self._log_gui(f"Supabase autenticado como {email_usuario}.")
                 self.after(
                     0,
                     lambda: (
-                        self.supabase_senha_var.set(""),
                         self.supabase_status_var.set(
                             f"Status: conectado ({email_usuario})"
                         ),

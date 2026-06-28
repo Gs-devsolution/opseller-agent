@@ -18,6 +18,8 @@ load_dotenv(ENV_PATH)
 class Config:
     supabase_url: str
     supabase_key: str
+    supabase_auth_email: str = ""
+    supabase_auth_password: str = ""
     executor_1_vitrines_enabled: bool = False
     executor_2_produtos_enabled: bool = False
     executor_3_teste_seller_enabled: bool = False
@@ -57,6 +59,8 @@ def carregar_config_permissiva() -> Config:
     return Config(
         supabase_url=supabase_url,
         supabase_key=supabase_key,
+        supabase_auth_email=os.getenv("SUPABASE_AUTH_EMAIL", "").strip(),
+        supabase_auth_password=os.getenv("SUPABASE_AUTH_PASSWORD", "").strip(),
         executor_1_vitrines_enabled=_env_bool("EXECUTOR_1_VITRINES_ENABLED", False),
         executor_2_produtos_enabled=_env_bool("EXECUTOR_2_PRODUTOS_ENABLED", False),
         executor_3_teste_seller_enabled=_env_bool(
@@ -115,6 +119,25 @@ def salvar_config_supabase(supabase_url: str, supabase_key: str) -> Config:
     return carregar_config()
 
 
+def salvar_login_supabase(email: str, senha: str) -> Config:
+    email = email.strip()
+
+    if not email or not senha:
+        raise RuntimeError("Informe email e senha do Supabase.")
+
+    valores = _ler_env()
+    valores["SUPABASE_AUTH_EMAIL"] = email
+    valores["SUPABASE_AUTH_PASSWORD"] = senha
+    _aplicar_defaults_env(valores)
+    _salvar_env(valores)
+
+    os.environ["SUPABASE_AUTH_EMAIL"] = email
+    os.environ["SUPABASE_AUTH_PASSWORD"] = senha
+    load_dotenv(ENV_PATH, override=True)
+
+    return carregar_config_permissiva()
+
+
 def _ler_env() -> dict[str, str]:
     origem = ENV_PATH if ENV_PATH.exists() else ENV_EXAMPLE_PATH
     valores: dict[str, str] = {}
@@ -138,6 +161,8 @@ def _defaults_env() -> dict[str, str]:
     return {
         "SUPABASE_URL": "",
         "SUPABASE_KEY": "",
+        "SUPABASE_AUTH_EMAIL": "",
+        "SUPABASE_AUTH_PASSWORD": "",
         "EXECUTOR_1_VITRINES_ENABLED": "false",
         "EXECUTOR_2_PRODUTOS_ENABLED": "false",
         "EXECUTOR_3_TESTE_SELLER_ENABLED": "false",
@@ -167,6 +192,8 @@ def _salvar_env(valores: dict[str, str]) -> None:
     ordem = [
         "SUPABASE_URL",
         "SUPABASE_KEY",
+        "SUPABASE_AUTH_EMAIL",
+        "SUPABASE_AUTH_PASSWORD",
         "EXECUTOR_1_VITRINES_ENABLED",
         "EXECUTOR_2_PRODUTOS_ENABLED",
         "EXECUTOR_3_TESTE_SELLER_ENABLED",

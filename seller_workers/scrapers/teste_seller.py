@@ -36,7 +36,21 @@ def testar_asin_no_seller(driver: WebDriver, asin: str) -> dict[str, str | bool]
                 "motivo": "Requer Aprovacao",
             }
 
+        if asin_nao_aceita_solicitacoes(driver):
+            return {
+                "finalizado": True,
+                "resultado": "Desqualificado",
+                "motivo": "Nao aceita solicitacoes",
+            }
+
         if not selecionar_condicao_novo(driver, timeout=30):
+            if asin_nao_aceita_solicitacoes(driver):
+                return {
+                    "finalizado": True,
+                    "resultado": "Desqualificado",
+                    "motivo": "Nao aceita solicitacoes",
+                }
+
             return {
                 "finalizado": False,
                 "resultado": "Erro",
@@ -48,6 +62,13 @@ def testar_asin_no_seller(driver: WebDriver, asin: str) -> dict[str, str | bool]
                 "finalizado": True,
                 "resultado": "Desqualificado",
                 "motivo": "Requer Aprovacao",
+            }
+
+        if asin_nao_aceita_solicitacoes(driver):
+            return {
+                "finalizado": True,
+                "resultado": "Desqualificado",
+                "motivo": "Nao aceita solicitacoes",
             }
 
         aba_base = driver.current_window_handle
@@ -94,17 +115,32 @@ def sessao_seller_autenticada(driver: WebDriver) -> bool:
     url = (driver.current_url or "").lower()
     texto = obter_texto_pagina(driver).lower()
 
-    if "signin" in url or "ap/signin" in url:
+    if (
+        "signin" in url
+        or "ap/signin" in url
+        or "/ap/mfa" in url
+        or "account-switcher" in url
+    ):
         return False
 
     sinais_login = [
         "fazer login",
+        "selecione uma conta",
+        "selecionar conta",
         "senha",
+        "verificacao em duas etapas",
+        "verificaÃ§Ã£o em duas etapas",
+        "insira o codigo",
+        "insira o cÃ³digo",
+        "codigo de uso unico",
+        "cÃ³digo de uso Ãºnico",
+        "otp",
         "mantenha-me conectado",
         "trocar contas",
         "esqueci a senha",
         "ap_email",
         "ap_password",
+        "auth-mfa-otpcode",
     ]
 
     if "amazon" in texto and any(sinal in texto for sinal in sinais_login):
@@ -112,6 +148,12 @@ def sessao_seller_autenticada(driver: WebDriver) -> bool:
 
     try:
         if driver.find_elements(By.ID, "ap_password"):
+            return False
+        if driver.find_elements(By.ID, "auth-mfa-otpcode"):
+            return False
+        if driver.find_elements(By.NAME, "otpCode"):
+            return False
+        if driver.find_elements(By.NAME, "mfaSubmit"):
             return False
         if driver.find_elements(By.ID, "signInSubmit"):
             return False
@@ -220,6 +262,31 @@ def asin_exige_aprovacao(driver: WebDriver, timeout: int = 8) -> bool:
 
         except Exception:
             pass
+
+        time.sleep(0.5)
+
+    return False
+
+
+def asin_nao_aceita_solicitacoes(driver: WebDriver, timeout: int = 8) -> bool:
+    termos = [
+        "nao estamos aceitando solicitacoes",
+        "nao estamos aceitando solicitacao",
+        "nao estamos aceitando solicitacoes para este produto",
+        "restringimos a publicacao ou venda",
+        "restringimos a publicacao",
+        "restringimos a venda",
+    ]
+
+    fim = time.time() + timeout
+
+    while time.time() < fim:
+        texto_tela = remover_acentos(obter_texto_pagina(driver))
+        texto_shadow = remover_acentos(obter_texto_com_shadow_dom(driver))
+        texto_completo = re.sub(r"\s+", " ", f"{texto_tela} {texto_shadow}").strip().lower()
+
+        if any(termo in texto_completo for termo in termos):
+            return True
 
         time.sleep(0.5)
 
