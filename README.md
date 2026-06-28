@@ -18,7 +18,7 @@ O projeto possui uma GUI local em Python para ligar e desligar executores. Todos
 
 O acesso ao banco usa Supabase Auth. A `SUPABASE_KEY` deve ser a publishable key, mas as tabelas usam RLS liberando `select`, `insert` e `update` apenas para usuarios `authenticated`.
 
-O Seller Central precisa de login manual em uma sessao Selenium persistente. Essa sessao e usada pelo Executor 3.
+O Executor 3 pode abrir sessoes Seller automaticamente para teste de produtos. Por padrao, `SELLER_AUTO_LOGIN_ENABLED=true`, usando perfis Chrome dedicados `teste_seller_1`, `teste_seller_2` etc. Se o auto-login for desligado, a GUI mantem o fluxo manual de login no Seller Central.
 
 ## Tecnologias
 
@@ -114,7 +114,7 @@ Para cada vitrine, detecta paginas, percorre a loja e grava cada ASIN encontrado
 
 Consome `produtos_capturados` com `status = 'pendente'`.
 
-Usa a sessao autenticada do Seller Central para testar cada produto. Quando o teste termina, grava o resultado em `teste_seller` e marca o registro em `produtos_capturados` como `finalizado`.
+Usa sessoes autenticadas do Seller Central para testar cada produto. Com auto-login ligado, o proprio Executor 3 abre perfis dedicados `teste_seller_N`, faz login com email, senha e OTP TOTP, e distribui os ASINs em paralelo. Quando o teste termina, grava o resultado em `teste_seller` e marca o registro em `produtos_capturados` como `finalizado`.
 
 Regras principais:
 
@@ -201,6 +201,8 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+Sempre rode esse comando novamente depois de atualizar o projeto pelo GitHub, pois novas dependencias podem ser adicionadas.
+
 ### 5. Criar O Banco No Supabase
 
 Crie um projeto novo no Supabase.
@@ -265,7 +267,19 @@ Depois do login, os botoes dos executores ficam liberados.
 
 ### 10. Login No Seller Central
 
-Esse passo so e necessario para o Executor 3.
+Com `SELLER_AUTO_LOGIN_ENABLED=true`, o Executor 3 tenta abrir e autenticar automaticamente as sessoes `teste_seller_N`.
+
+Para isso, configure no `.env`:
+
+```env
+SELLER_EMAIL=
+SELLER_PASSWORD=
+SELLER_TOTP_SECRET=
+```
+
+O `SELLER_TOTP_SECRET` e a chave secreta do app autenticador. O caminho mais limpo e reconfigurar o 2FA da conta Seller e salvar a chave/QR secret no momento da configuracao.
+
+Se `SELLER_AUTO_LOGIN_ENABLED=false`, use o login manual:
 
 Na area `Sessao Seller`:
 
@@ -293,7 +307,7 @@ Na GUI:
 
 1. Ligue o Executor 1 para capturar vitrines dos ASINs iniciais.
 2. Ligue o Executor 2 para capturar produtos das vitrines.
-3. Abra/login a sessao Seller e ligue o Executor 3 para testar produtos.
+3. Ligue o Executor 3 para testar produtos. Com auto-login ligado, ele abre as sessoes `teste_seller_N` sozinho. Com auto-login desligado, abra/login a sessao Seller manual antes.
 4. Ligue o Executor 4 para enriquecer produtos aprovados.
 
 Os executores podem ser ligados/desligados pela GUI. Por padrao, todos iniciam desligados.
@@ -330,6 +344,13 @@ MAX_PAGINAS_POR_VITRINE=0
 
 SELENIUM_PROFILE_DIR=chrome_profile
 SELLER_CENTRAL_URL=https://sellercentral.amazon.com.br/product-search
+SELLER_AUTO_LOGIN_ENABLED=true
+SELLER_EMAIL=
+SELLER_PASSWORD=
+SELLER_TOTP_SECRET=
+TESTE_SELLER_SESSION_COUNT=2
+TESTE_SELLER_SESSION_MAX=4
+EXECUTOR_3_BATCH_SIZE=100
 ```
 
 Significados:
@@ -341,6 +362,11 @@ Significados:
 - `MAX_PAGINAS_POR_VITRINE`: limite de paginas por vitrine no Executor 2. `0` significa sem limite.
 - `SELENIUM_PROFILE_DIR`: pasta local onde ficam os perfis do Chrome.
 - `SELLER_CENTRAL_URL`: URL inicial da sessao Seller.
+- `SELLER_AUTO_LOGIN_ENABLED`: liga/desliga auto-login do Executor 3. Padrao `true`.
+- `SELLER_EMAIL`, `SELLER_PASSWORD`, `SELLER_TOTP_SECRET`: credenciais locais usadas no auto-login Seller.
+- `TESTE_SELLER_SESSION_COUNT`: quantidade de testers Seller abertos em paralelo.
+- `TESTE_SELLER_SESSION_MAX`: limite maximo permitido para testers Seller.
+- `EXECUTOR_3_BATCH_SIZE`: quantidade maxima de ASINs consumidos por ciclo do Executor 3.
 
 ## Arquivos Que Nao Devem Ser Distribuidos
 
@@ -353,7 +379,7 @@ chrome_profile/
 
 Motivos:
 
-- `.env` contem URL e chave publica do projeto Supabase do usuario.
+- `.env` contem URL/chave publica do Supabase e pode conter login, senha e TOTP secret do Seller.
 - `chrome_profile/` pode conter cookies, sessoes e dados de login.
 
 O sistema cria `chrome_profile/` automaticamente quando necessario.
@@ -364,8 +390,8 @@ O sistema cria `chrome_profile/` automaticamente quando necessario.
 - Se um worker for interrompido, os registros pendentes devem continuar pendentes para nova tentativa.
 - Produtos capturados sao deduplicados globalmente por ASIN.
 - Vitrines sao deduplicadas globalmente por URL.
-- O Executor 3 depende de login manual no Seller Central.
-- Se o Seller Central deslogar, o Executor 3 nao deve finalizar produtos indevidamente.
+- O Executor 3 usa auto-login por padrao, mas ainda suporta login manual com `SELLER_AUTO_LOGIN_ENABLED=false`.
+- Se o Seller Central deslogar ou exigir desafio nao suportado, o Executor 3 nao deve finalizar produtos indevidamente.
 
 ## Prompt Para IA
 
@@ -412,12 +438,12 @@ A GUI local permite:
 - visualizar logs.
 
 Selenium:
-Executores 1, 2 e 4 usam Selenium proprio. O Executor 3 usa uma sessao Seller persistente, aberta pela GUI, porque precisa de login manual no Seller Central. Perfis Chrome ficam em chrome_profile/ e nao devem ser versionados nem distribuidos preenchidos.
+Executores 1, 2 e 4 usam Selenium proprio. O Executor 3 usa perfis Chrome dedicados para teste Seller, nomeados como teste_seller_1, teste_seller_2 etc. Com SELLER_AUTO_LOGIN_ENABLED=true, ele abre e autentica esses perfis automaticamente usando email, senha e TOTP. Com auto-login desligado, usa o fluxo manual da GUI. Perfis Chrome ficam em chrome_profile/ e nao devem ser versionados nem distribuidos preenchidos.
 
 Fluxo:
 1. Executor 1 consome produtos_iniciais pendentes, acessa paginas de produtos Amazon e grava vitrines encontradas em vitrines. Finaliza o ASIN inicial quando conclui.
 2. Executor 2 consome vitrines pendentes, percorre todas as paginas da loja, grava ASINs em produtos_capturados produto a produto e finaliza a vitrine apenas quando a varredura completa termina.
-3. Executor 3 consome produtos_capturados pendentes, testa cada ASIN no Seller Central autenticado e grava o resultado em teste_seller. Depois marca produtos_capturados como finalizado. Se houver erro operacional ou sessao deslogada, nao grava resultado e mantem pendente.
+3. Executor 3 consome produtos_capturados pendentes, testa cada ASIN no Seller Central autenticado, podendo usar multiplos testers em paralelo, e grava o resultado em teste_seller. Depois marca produtos_capturados como finalizado. Se houver erro operacional, sessao deslogada ou falha de login, nao grava resultado e mantem pendente.
 4. Executor 4 consome teste_seller pendente, abre a pagina publica Amazon, enriquece o produto e grava em produtos_minerados.
 
 Regras de idempotencia:
@@ -453,6 +479,7 @@ Importante:
 - Nao criar interface web neste projeto.
 - Nao usar service_role key no agent.
 - Nao versionar .env nem chrome_profile/.
+- Proteger SELLER_EMAIL, SELLER_PASSWORD e SELLER_TOTP_SECRET quando auto-login estiver ativo.
 - Preferir codigo simples e modular.
 - Antes de alterar scraping, verificar os seletores atuais em seller_workers/scrapers/.
 - Antes de alterar fluxo de banco, verificar seller_workers/database.py e db/schema.sql.

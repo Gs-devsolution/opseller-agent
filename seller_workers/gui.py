@@ -23,13 +23,17 @@ from seller_workers.executors.executor_1_vitrines import rodar_ciclo_executor_1
 from seller_workers.executors.executor_2_produtos import rodar_ciclo_executor_2
 from seller_workers.executors.executor_3_teste_seller import rodar_ciclo_executor_3
 from seller_workers.executors.executor_4_produtos import rodar_ciclo_executor_4
-from seller_workers.seller_session import SellerSession
+from seller_workers.seller_session import SellerSession, TesteSellerSessionManager
 
 LogFn = Callable[[str], None]
 StopFn = Callable[[], bool]
 DriverFn = Callable[[Any | None], None]
 SellerDriverFn = Callable[[], Any | None]
-ExecutorFn = Callable[[Config, Client, LogFn, StopFn, DriverFn, SellerDriverFn], int]
+TesteSellerSessionsFn = Callable[[StopFn], list[Any]]
+ExecutorFn = Callable[
+    [Config, Client, LogFn, StopFn, DriverFn, SellerDriverFn, TesteSellerSessionsFn],
+    int,
+]
 SupabaseClientFn = Callable[[], Client | None]
 
 
@@ -50,6 +54,7 @@ class ExecutorController:
         on_status_change: Callable[[], None],
         get_supabase_client: SupabaseClientFn,
         get_seller_driver: SellerDriverFn,
+        get_teste_seller_sessions: TesteSellerSessionsFn,
     ) -> None:
         self.executor = executor
         self.config = config
@@ -57,6 +62,7 @@ class ExecutorController:
         self.on_status_change = on_status_change
         self.get_supabase_client = get_supabase_client
         self.get_seller_driver = get_seller_driver
+        self.get_teste_seller_sessions = get_teste_seller_sessions
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
         self.current_driver: Any | None = None
@@ -132,6 +138,7 @@ class ExecutorController:
                         self.stop_event.is_set,
                         self.registrar_driver,
                         self.get_seller_driver,
+                        self.get_teste_seller_sessions,
                     )
                 except Exception as exc:
                     intervalo = self.config.intervalo_orquestrador_segundos
@@ -165,6 +172,10 @@ class SellerCentralApp(tk.Tk):
         self.config = carregar_config_permissiva()
 
         self.seller_session = SellerSession(self.config, self._log_gui)
+        self.teste_seller_session_manager = TesteSellerSessionManager(
+            self.config,
+            self._log_gui,
+        )
         self.controllers: list[ExecutorController] = []
         self.status_vars: dict[str, tk.StringVar] = {}
         self.proxima_execucao_vars: dict[str, tk.StringVar] = {}
@@ -178,6 +189,7 @@ class SellerCentralApp(tk.Tk):
         self.supabase_email_var = tk.StringVar()
         self.supabase_senha_var = tk.StringVar()
         self.seller_status_var = tk.StringVar(value="Status: fechado")
+        self.teste_seller_status_var = tk.StringVar(value="Testers: fechados")
 
         self._montar_interface()
         self._aplicar_estado_inicial()
@@ -220,6 +232,7 @@ class SellerCentralApp(tk.Tk):
                 on_status_change=self._agendar_atualizacao_status,
                 get_supabase_client=self._get_supabase_client,
                 get_seller_driver=self._get_seller_driver,
+                get_teste_seller_sessions=self._get_teste_seller_sessions,
             )
             for executor in executores
         ]
@@ -232,6 +245,11 @@ class SellerCentralApp(tk.Tk):
             return None
 
         return self.seller_session.driver
+
+    def _get_teste_seller_sessions(self, should_stop: StopFn) -> list[Any]:
+        sessoes = self.teste_seller_session_manager.sessoes_prontas(should_stop)
+        self.after(0, self._atualizar_status_teste_seller)
+        return sessoes
 
     def _montar_interface(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -349,6 +367,12 @@ class SellerCentralApp(tk.Tk):
         )
         fechar_seller.grid(row=0, column=3)
 
+        teste_seller_status = ttk.Label(
+            seller_frame,
+            textvariable=self.teste_seller_status_var,
+        )
+        teste_seller_status.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
+
         logs_frame = ttk.LabelFrame(corpo, text="Logs", padding=8)
         logs_frame.grid(row=4, column=0, sticky="nsew", pady=(12, 0))
         logs_frame.columnconfigure(0, weight=1)
@@ -415,6 +439,11 @@ class SellerCentralApp(tk.Tk):
                 self.config_supabase_key_var.get(),
             )
             self.seller_session = SellerSession(self.config, self._log_gui)
+            self.teste_seller_session_manager.fechar_todas()
+            self.teste_seller_session_manager = TesteSellerSessionManager(
+                self.config,
+                self._log_gui,
+            )
             self._remontar_controllers()
             self.supabase_client = None
             self.supabase_status_var.set("Status: desconectado")
@@ -526,7 +555,9 @@ class SellerCentralApp(tk.Tk):
 
     def _fechar_sessao_seller(self) -> None:
         self.seller_session.fechar()
+        self.teste_seller_session_manager.fechar_todas()
         self.seller_status_var.set("Status: fechado")
+        self._atualizar_status_teste_seller()
 
     def _agendar_atualizacao_status(self) -> None:
         self.after(0, self._atualizar_status)
@@ -536,6 +567,12 @@ class SellerCentralApp(tk.Tk):
             chave = controller.executor.chave
             self.status_vars[chave].set(f"Status: {controller.status}")
             self.proxima_execucao_vars[chave].set(f"Proximo ciclo: {controller.proxima_execucao}")
+        self._atualizar_status_teste_seller()
+
+    def _atualizar_status_teste_seller(self) -> None:
+        self.teste_seller_status_var.set(
+            f"Testers: {self.teste_seller_session_manager.status_resumo()}"
+        )
 
     def _processar_logs(self) -> None:
         while True:
@@ -561,6 +598,7 @@ class SellerCentralApp(tk.Tk):
             pass
 
         self.seller_session.fechar()
+        self.teste_seller_session_manager.fechar_todas()
         self.destroy()
 
 

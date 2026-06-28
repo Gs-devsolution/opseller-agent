@@ -34,6 +34,7 @@ def rodar_ciclo_executor_2(
     should_stop: StopFn = lambda: False,
     on_driver: DriverFn = lambda driver: None,
     get_seller_driver: SellerDriverFn = lambda: None,
+    get_teste_seller_sessions: Callable[[StopFn], list[Any]] = lambda should_stop: [],
 ) -> int:
     if should_stop():
         log("Executor 2: desligamento solicitado antes do ciclo.")

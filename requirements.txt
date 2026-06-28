@@ -2,3 +2,4 @@ supabase
 selenium
 webdriver-manager
 python-dotenv
+pyotp

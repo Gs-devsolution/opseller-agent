@@ -234,13 +234,20 @@ def inserir_produtos_capturados_em_lote(
     return len(resposta.data or [])
 
 
-def buscar_produtos_capturados_pendentes(supabase: Client) -> list[dict[str, Any]]:
-    resposta = (
+def buscar_produtos_capturados_pendentes(
+    supabase: Client,
+    limite: int | None = None,
+) -> list[dict[str, Any]]:
+    query = (
         supabase.table("produtos_capturados")
         .select("*")
         .eq("status", "pendente")
-        .execute()
     )
+
+    if limite:
+        query = query.limit(limite)
+
+    resposta = query.execute()
     return resposta.data or []
 
 

@@ -49,7 +49,7 @@ Executores com Selenium proprio:
 - Executor 2;
 - Executor 4.
 
-Executor 3 usa a sessao Seller persistente, aberta pela area `Sessao Seller` da GUI. Desligar o Executor 3 nao fecha a sessao Seller. Para fechar a sessao Seller, usar o botao proprio `Fechar`.
+Executor 3 pode usar auto-login e perfis dedicados `teste_seller_N`. Quando `SELLER_AUTO_LOGIN_ENABLED=true`, o proprio Executor 3 abre e autentica os testers. Quando `false`, usa a sessao Seller manual aberta pela area `Sessao Seller` da GUI.
 
 ## Configuracoes De Intervalo
 
@@ -60,6 +60,10 @@ INTERVALO_ORQUESTRADOR_SEGUNDOS=5
 INTERVALO_SEM_PENDENTES_SEGUNDOS=3600
 INTERVALO_APOS_LOTE_SEGUNDOS=1200
 MAX_PAGINAS_POR_VITRINE=0
+SELLER_AUTO_LOGIN_ENABLED=true
+TESTE_SELLER_SESSION_COUNT=2
+TESTE_SELLER_SESSION_MAX=4
+EXECUTOR_3_BATCH_SIZE=100
 ```
 
 Significados:
@@ -68,6 +72,10 @@ Significados:
 - `INTERVALO_SEM_PENDENTES_SEGUNDOS`: tempo de espera quando nao ha tarefa pendente.
 - `INTERVALO_APOS_LOTE_SEGUNDOS`: tempo de espera apos processar um lote.
 - `MAX_PAGINAS_POR_VITRINE`: limite de paginas por vitrine no Worker 2. `0` significa sem limite.
+- `SELLER_AUTO_LOGIN_ENABLED`: liga/desliga auto-login do Executor 3.
+- `TESTE_SELLER_SESSION_COUNT`: quantidade de testers Seller em paralelo.
+- `TESTE_SELLER_SESSION_MAX`: limite maximo de testers Seller.
+- `EXECUTOR_3_BATCH_SIZE`: quantidade maxima de ASINs por ciclo do Executor 3.
 
 ## Executor 1 - Captura De Vitrines
 
@@ -205,43 +213,65 @@ Funcao:
 - gravar o resultado em `teste_seller`;
 - marcar o produto capturado como finalizado apos o teste ser concluido.
 
-Este executor nao cria Selenium proprio. Ele usa a sessao Seller aberta pela GUI.
+Com `SELLER_AUTO_LOGIN_ENABLED=true`, este executor cria Selenium proprio para cada tester dedicado:
 
-Antes de ligar:
+- `chrome_profile/teste_seller_1`;
+- `chrome_profile/teste_seller_2`;
+- `chrome_profile/teste_seller_3`;
+- `chrome_profile/teste_seller_4`.
 
-1. Clique em `Abrir/Login` na area `Sessao Seller`.
-2. Faca login manual se necessario.
-3. Depois ligue o Executor 3.
+Com `SELLER_AUTO_LOGIN_ENABLED=false`, ele usa a sessao Seller manual aberta pela GUI.
+
+Antes de ligar com auto-login:
+
+1. Configure `SELLER_EMAIL`, `SELLER_PASSWORD` e `SELLER_TOTP_SECRET` no `.env`.
+2. Ligue o Executor 3.
+3. O executor abre e autentica as sessoes `teste_seller_N`.
+
+Antes de ligar em modo manual:
+
+1. Configure `SELLER_AUTO_LOGIN_ENABLED=false`.
+2. Clique em `Abrir/Login` na area `Sessao Seller`.
+3. Faca login manual se necessario.
+4. Depois ligue o Executor 3.
 
 Fluxo:
 
-1. Verifica se existe sessao Seller aberta.
-2. Consulta `produtos_capturados` com status `pendente`.
-3. Para cada ASIN:
+1. Consulta `produtos_capturados` com status `pendente`, limitado por `EXECUTOR_3_BATCH_SIZE`.
+2. Se auto-login estiver ligado:
+   - abre/prepara os testers `teste_seller_N`;
+   - faz login automatico quando necessario;
+   - distribui os ASINs em uma fila interna;
+   - cada tester consome ASINs em paralelo.
+3. Se auto-login estiver desligado:
+   - verifica se existe sessao Seller manual aberta;
+   - processa os ASINs de forma serial.
+4. Para cada ASIN:
    - verifica se ja existe resultado em `teste_seller`;
    - se ja existe, marca `produtos_capturados` como `finalizado`;
    - se nao existe, executa o Worker 3.
-4. Se o Worker 3 retornar `finalizado = true`:
+5. Se o Worker 3 retornar `finalizado = true`:
    - grava/atualiza `teste_seller`;
    - marca `produtos_capturados` como `finalizado`.
-5. Se retornar `finalizado = false`:
+6. Se retornar `finalizado = false`:
    - nao grava `teste_seller`;
    - nao finaliza `produtos_capturados`.
 
 Se a conta deslogar:
 
 - o Worker 3 detecta a tela de login;
-- o Executor 3 para o ciclo;
+- no auto-login, o proximo ciclo tenta autenticar novamente;
+- no modo manual, o Executor 3 para o ciclo;
 - nada e gravado;
 - nenhum produto e finalizado indevidamente;
-- e necessario fazer login manual novamente.
+- pode ser necessario fazer login manual se a Amazon exigir desafio nao suportado.
 
 ## Worker 3 - Teste Seller
 
 Entrada:
 
 - `asin_produto`;
-- driver da sessao Seller autenticada.
+- driver da sessao Seller autenticada, manual ou `teste_seller_N`.
 
 Acao:
 
@@ -437,4 +467,11 @@ MAX_PAGINAS_POR_VITRINE=0
 
 SELENIUM_PROFILE_DIR=chrome_profile
 SELLER_CENTRAL_URL=https://sellercentral.amazon.com.br/product-search
+SELLER_AUTO_LOGIN_ENABLED=true
+SELLER_EMAIL=
+SELLER_PASSWORD=
+SELLER_TOTP_SECRET=
+TESTE_SELLER_SESSION_COUNT=2
+TESTE_SELLER_SESSION_MAX=4
+EXECUTOR_3_BATCH_SIZE=100
 ```

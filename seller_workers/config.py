@@ -29,6 +29,13 @@ class Config:
     selenium_profile_dir: str = "chrome_profile"
     amazon_base_url: str = "https://www.amazon.com.br/dp"
     seller_central_url: str = "https://sellercentral.amazon.com.br/product-search"
+    seller_auto_login_enabled: bool = True
+    seller_email: str = ""
+    seller_password: str = ""
+    seller_totp_secret: str = ""
+    teste_seller_session_count: int = 2
+    teste_seller_session_max: int = 4
+    executor_3_batch_size: int = 100
 
 
 def carregar_config() -> Config:
@@ -74,6 +81,13 @@ def carregar_config_permissiva() -> Config:
             "https://sellercentral.amazon.com.br/product-search",
         ).strip()
         or "https://sellercentral.amazon.com.br/product-search",
+        seller_auto_login_enabled=_env_bool("SELLER_AUTO_LOGIN_ENABLED", True),
+        seller_email=os.getenv("SELLER_EMAIL", "").strip(),
+        seller_password=os.getenv("SELLER_PASSWORD", "").strip(),
+        seller_totp_secret=os.getenv("SELLER_TOTP_SECRET", "").strip(),
+        teste_seller_session_count=_env_int("TESTE_SELLER_SESSION_COUNT", 2),
+        teste_seller_session_max=_env_int("TESTE_SELLER_SESSION_MAX", 4),
+        executor_3_batch_size=_env_int("EXECUTOR_3_BATCH_SIZE", 100),
     )
 
 
@@ -91,6 +105,7 @@ def salvar_config_supabase(supabase_url: str, supabase_key: str) -> Config:
     valores = _ler_env()
     valores["SUPABASE_URL"] = supabase_url
     valores["SUPABASE_KEY"] = supabase_key
+    _aplicar_defaults_env(valores)
     _salvar_env(valores)
 
     os.environ["SUPABASE_URL"] = supabase_url
@@ -105,20 +120,7 @@ def _ler_env() -> dict[str, str]:
     valores: dict[str, str] = {}
 
     if not origem.exists():
-        return {
-            "SUPABASE_URL": "",
-            "SUPABASE_KEY": "",
-            "EXECUTOR_1_VITRINES_ENABLED": "false",
-            "EXECUTOR_2_PRODUTOS_ENABLED": "false",
-            "EXECUTOR_3_TESTE_SELLER_ENABLED": "false",
-            "EXECUTOR_4_PRODUTOS_ENABLED": "false",
-            "INTERVALO_ORQUESTRADOR_SEGUNDOS": "5",
-            "INTERVALO_SEM_PENDENTES_SEGUNDOS": "3600",
-            "INTERVALO_APOS_LOTE_SEGUNDOS": "1200",
-            "MAX_PAGINAS_POR_VITRINE": "0",
-            "SELENIUM_PROFILE_DIR": "chrome_profile",
-            "SELLER_CENTRAL_URL": "https://sellercentral.amazon.com.br/product-search",
-        }
+        return _defaults_env()
 
     for linha in origem.read_text(encoding="utf-8").splitlines():
         texto = linha.strip()
@@ -128,7 +130,37 @@ def _ler_env() -> dict[str, str]:
         chave, valor = texto.split("=", 1)
         valores[chave.strip()] = valor.strip()
 
+    _aplicar_defaults_env(valores)
     return valores
+
+
+def _defaults_env() -> dict[str, str]:
+    return {
+        "SUPABASE_URL": "",
+        "SUPABASE_KEY": "",
+        "EXECUTOR_1_VITRINES_ENABLED": "false",
+        "EXECUTOR_2_PRODUTOS_ENABLED": "false",
+        "EXECUTOR_3_TESTE_SELLER_ENABLED": "false",
+        "EXECUTOR_4_PRODUTOS_ENABLED": "false",
+        "INTERVALO_ORQUESTRADOR_SEGUNDOS": "5",
+        "INTERVALO_SEM_PENDENTES_SEGUNDOS": "3600",
+        "INTERVALO_APOS_LOTE_SEGUNDOS": "1200",
+        "MAX_PAGINAS_POR_VITRINE": "0",
+        "SELENIUM_PROFILE_DIR": "chrome_profile",
+        "SELLER_CENTRAL_URL": "https://sellercentral.amazon.com.br/product-search",
+        "SELLER_AUTO_LOGIN_ENABLED": "true",
+        "SELLER_EMAIL": "",
+        "SELLER_PASSWORD": "",
+        "SELLER_TOTP_SECRET": "",
+        "TESTE_SELLER_SESSION_COUNT": "2",
+        "TESTE_SELLER_SESSION_MAX": "4",
+        "EXECUTOR_3_BATCH_SIZE": "100",
+    }
+
+
+def _aplicar_defaults_env(valores: dict[str, str]) -> None:
+    for chave, valor in _defaults_env().items():
+        valores.setdefault(chave, valor)
 
 
 def _salvar_env(valores: dict[str, str]) -> None:
@@ -145,6 +177,13 @@ def _salvar_env(valores: dict[str, str]) -> None:
         "MAX_PAGINAS_POR_VITRINE",
         "SELENIUM_PROFILE_DIR",
         "SELLER_CENTRAL_URL",
+        "SELLER_AUTO_LOGIN_ENABLED",
+        "SELLER_EMAIL",
+        "SELLER_PASSWORD",
+        "SELLER_TOTP_SECRET",
+        "TESTE_SELLER_SESSION_COUNT",
+        "TESTE_SELLER_SESSION_MAX",
+        "EXECUTOR_3_BATCH_SIZE",
     ]
 
     linhas: list[str] = []
