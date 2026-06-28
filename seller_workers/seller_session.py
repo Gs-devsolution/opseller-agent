@@ -194,12 +194,18 @@ class TesteSellerSessionManager:
             if self._desafio_nao_suportado(driver):
                 raise RuntimeError("Amazon exibiu desafio/captcha nao suportado para auto-login.")
 
-            fez_acao = (
-                self._preencher_otp(driver)
-                or self._preencher_senha(driver)
-                or self._preencher_email(driver)
-                or self._clicar_botao_login_generico(driver)
-            )
+            etapa = self._detectar_etapa_login(driver)
+            if etapa:
+                self.log(f"{sessao.nome}: etapa de login detectada: {etapa}.")
+
+            if etapa == "email":
+                fez_acao = self._preencher_email(driver)
+            elif etapa == "senha":
+                fez_acao = self._preencher_senha(driver)
+            elif etapa == "otp":
+                fez_acao = self._preencher_otp(driver)
+            else:
+                fez_acao = self._clicar_botao_login_generico(driver)
 
             if not fez_acao:
                 self._abrir_area_interna(driver)
@@ -247,6 +253,25 @@ class TesteSellerSessionManager:
         except Exception:
             driver.get("https://sellercentral.amazon.com.br/signin")
             time.sleep(2)
+
+    def _detectar_etapa_login(self, driver: WebDriver) -> str | None:
+        if self._existe_campo_interativo(
+            driver,
+            [
+                (By.ID, "auth-mfa-otpcode"),
+                (By.NAME, "otpCode"),
+                (By.NAME, "mfaCode"),
+            ],
+        ):
+            return "otp"
+
+        if self._existe_campo_interativo(driver, [(By.ID, "ap_password"), (By.NAME, "password")]):
+            return "senha"
+
+        if self._existe_campo_interativo(driver, [(By.ID, "ap_email"), (By.NAME, "email")]):
+            return "email"
+
+        return None
 
     def _preencher_email(self, driver: WebDriver) -> bool:
         campos = [
@@ -374,6 +399,12 @@ class TesteSellerSessionManager:
             except Exception:
                 continue
         return None
+
+    def _existe_campo_interativo(self, driver: WebDriver, selectors: list[tuple[str, str]]) -> bool:
+        for by, selector in selectors:
+            if self._primeiro_campo_interativo(driver.find_elements(by, selector)):
+                return True
+        return False
 
     def _primeiro_campo_interativo(self, elementos):
         for elemento in elementos:
