@@ -8,6 +8,7 @@ from typing import Callable
 
 import pyotp
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -194,9 +195,9 @@ class TesteSellerSessionManager:
                 raise RuntimeError("Amazon exibiu desafio/captcha nao suportado para auto-login.")
 
             fez_acao = (
-                self._preencher_email(driver)
+                self._preencher_otp(driver)
                 or self._preencher_senha(driver)
-                or self._preencher_otp(driver)
+                or self._preencher_email(driver)
                 or self._clicar_botao_login_generico(driver)
             )
 
@@ -256,16 +257,18 @@ class TesteSellerSessionManager:
         if not campo:
             return False
 
-        campo.clear()
-        campo.send_keys(self.config.seller_email)
-        self._clicar_por_selectors(
+        self._preencher_campo(driver, campo, self.config.seller_email)
+        clicou = self._clicar_por_selectors(
             driver,
             [
                 (By.ID, "continue"),
+                (By.NAME, "continue"),
                 (By.CSS_SELECTOR, "input[type='submit']"),
                 (By.CSS_SELECTOR, "button[type='submit']"),
             ],
         )
+        if not clicou:
+            campo.send_keys(Keys.ENTER)
         return True
 
     def _preencher_senha(self, driver: WebDriver) -> bool:
@@ -273,10 +276,9 @@ class TesteSellerSessionManager:
         if not campo:
             return False
 
-        campo.clear()
-        campo.send_keys(self.config.seller_password)
+        self._preencher_campo(driver, campo, self.config.seller_password)
         self._marcar_manter_conectado(driver)
-        self._clicar_por_selectors(
+        clicou = self._clicar_por_selectors(
             driver,
             [
                 (By.ID, "signInSubmit"),
@@ -285,6 +287,8 @@ class TesteSellerSessionManager:
                 (By.CSS_SELECTOR, "button[type='submit']"),
             ],
         )
+        if not clicou:
+            campo.send_keys(Keys.ENTER)
         return True
 
     def _preencher_otp(self, driver: WebDriver) -> bool:
@@ -302,9 +306,8 @@ class TesteSellerSessionManager:
             return False
 
         codigo = pyotp.TOTP(self.config.seller_totp_secret.replace(" ", "")).now()
-        campo.clear()
-        campo.send_keys(codigo)
-        self._clicar_por_selectors(
+        self._preencher_campo(driver, campo, codigo)
+        clicou = self._clicar_por_selectors(
             driver,
             [
                 (By.ID, "auth-signin-button"),
@@ -313,6 +316,8 @@ class TesteSellerSessionManager:
                 (By.CSS_SELECTOR, "button[type='submit']"),
             ],
         )
+        if not clicou:
+            campo.send_keys(Keys.ENTER)
         return True
 
     def _pagina_pede_otp(self, driver: WebDriver) -> bool:
@@ -333,10 +338,10 @@ class TesteSellerSessionManager:
         )
 
     def _marcar_manter_conectado(self, driver: WebDriver) -> None:
-        for by, selector in [(By.NAME, "rememberMe"), (By.ID, "rememberMe")]:
+        for by, selector in [(By.ID, "auth-remember-me"), (By.NAME, "rememberMe"), (By.ID, "rememberMe")]:
             try:
                 checkbox = driver.find_element(by, selector)
-                if not checkbox.is_selected():
+                if checkbox.is_displayed() and not checkbox.is_selected():
                     driver.execute_script("arguments[0].click();", checkbox)
                 return
             except Exception:
@@ -364,11 +369,49 @@ class TesteSellerSessionManager:
         for by, selector in selectors:
             try:
                 return WebDriverWait(driver, timeout).until(
-                    EC.presence_of_element_located((by, selector))
+                    lambda d: self._primeiro_campo_interativo(d.find_elements(by, selector))
                 )
             except Exception:
                 continue
         return None
+
+    def _primeiro_campo_interativo(self, elementos):
+        for elemento in elementos:
+            try:
+                tipo = (elemento.get_attribute("type") or "").lower()
+                disabled = elemento.get_attribute("disabled")
+                readonly = elemento.get_attribute("readonly")
+                if tipo == "hidden" or disabled or readonly:
+                    continue
+                if elemento.is_displayed() and elemento.is_enabled():
+                    return elemento
+            except Exception:
+                continue
+        return False
+
+    def _preencher_campo(self, driver: WebDriver, campo, valor: str) -> None:
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", campo)
+        try:
+            campo.click()
+            campo.clear()
+            campo.send_keys(valor)
+        except Exception:
+            driver.execute_script(
+                """
+                arguments[0].focus();
+                arguments[0].value = '';
+                arguments[0].value = arguments[1];
+                """,
+                campo,
+                valor,
+            )
+        driver.execute_script(
+            """
+            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+            """,
+            campo,
+        )
 
     def _clicar_por_selectors(
         self,
