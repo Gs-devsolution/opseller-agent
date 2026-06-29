@@ -115,6 +115,9 @@ def sessao_seller_autenticada(driver: WebDriver) -> bool:
     url = (driver.current_url or "").lower()
     texto = obter_texto_pagina(driver).lower()
 
+    if not texto.strip():
+        return False
+
     if (
         "signin" in url
         or "ap/signin" in url

@@ -171,13 +171,15 @@ def _processar_produtos_em_paralelo(
                         log(f"{nome_sessao}: erro ao reautenticar sessao: {exc}")
                         return
 
-                continuar = _processar_um_produto(
+                continuar = _processar_um_produto_com_relogin(
                     supabase=supabase,
                     asin_produto=asin_produto,
                     driver=driver,
                     nome_sessao=nome_sessao,
                     log=log,
                     db_lock=db_lock,
+                    garantir_autenticacao=garantir_autenticacao,
+                    should_stop=should_stop,
                 )
 
                 if not continuar:
@@ -201,6 +203,46 @@ def _processar_produtos_em_paralelo(
 
     for thread in threads:
         thread.join()
+
+
+def _processar_um_produto_com_relogin(
+    supabase: Client,
+    asin_produto: str,
+    driver: WebDriver,
+    nome_sessao: str,
+    log: LogFn,
+    db_lock: threading.Lock | None,
+    garantir_autenticacao: Any,
+    should_stop: StopFn,
+) -> bool:
+    continuar = _processar_um_produto(
+        supabase=supabase,
+        asin_produto=asin_produto,
+        driver=driver,
+        nome_sessao=nome_sessao,
+        log=log,
+        db_lock=db_lock,
+    )
+
+    if continuar or should_stop():
+        return continuar
+
+    if not callable(garantir_autenticacao):
+        return False
+
+    log(f"{nome_sessao}: sessao caiu durante o teste; tentando reautenticar e repetir {asin_produto}.")
+
+    if not garantir_autenticacao(should_stop):
+        return False
+
+    return _processar_um_produto(
+        supabase=supabase,
+        asin_produto=asin_produto,
+        driver=driver,
+        nome_sessao=nome_sessao,
+        log=log,
+        db_lock=db_lock,
+    )
 
 
 def _processar_um_produto(
